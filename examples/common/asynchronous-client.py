@@ -30,9 +30,20 @@ log.setLevel(logging.DEBUG)
 # helper method to test deferred callbacks
 #---------------------------------------------------------------------------# 
 def dassert(deferred, callback):
-    def _assertor(value): assert(value)
+    def _assertor(value):
+        assert(value)
     deferred.addCallback(lambda r: _assertor(callback(r)))
     deferred.addErrback(lambda  _: _assertor(False))
+
+#---------------------------------------------------------------------------# 
+# specify slave to query
+#---------------------------------------------------------------------------# 
+# The slave to query is specified in an optional parameter for each
+# individual request. This can be done by specifying the `unit` parameter
+# which defaults to `0x00`
+#---------------------------------------------------------------------------# 
+def exampleRequests(client):
+    rr = client.read_coils(1, 1, unit=0x02)
 
 #---------------------------------------------------------------------------# 
 # example requests
@@ -111,6 +122,6 @@ def beginAsynchronousTest(client):
 # directory, or start a pymodbus server.
 #---------------------------------------------------------------------------# 
 defer = protocol.ClientCreator(reactor, ModbusClientProtocol
-        ).connectTCP("localhost", Defaults.Port)
+        ).connectTCP("localhost", 5020)
 defer.addCallback(beginAsynchronousTest)
 reactor.run()

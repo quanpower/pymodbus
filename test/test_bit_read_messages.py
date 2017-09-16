@@ -14,9 +14,11 @@ from pymodbus.bit_read_message import ReadBitsRequestBase
 from pymodbus.bit_read_message import ReadBitsResponseBase
 from pymodbus.exceptions import *
 from pymodbus.pdu import ModbusExceptions
+from pymodbus.compat import iteritems
 
-from modbus_mocks import MockContext
-
+from .modbus_mocks import MockContext
+res = [True] * 21
+res.extend([False] * 3)
 #---------------------------------------------------------------------------#
 # Fixture
 #---------------------------------------------------------------------------#
@@ -48,7 +50,7 @@ class ModbusBitMessageTests(unittest.TestCase):
 
     def testBitReadBaseRequestEncoding(self):
         ''' Test basic bit message encoding/decoding '''
-        for i in xrange(20):
+        for i in range(20):
             handle = ReadBitsRequestBase(i, i)
             result = struct.pack('>HH',i, i)
             self.assertEqual(handle.encode(), result)
@@ -57,7 +59,7 @@ class ModbusBitMessageTests(unittest.TestCase):
 
     def testBitReadBaseResponseEncoding(self):
         ''' Test basic bit message encoding/decoding '''
-        for i in xrange(20):
+        for i in range(20):
             input  = [True] * i
             handle = ReadBitsResponseBase(input)
             result = handle.encode()
@@ -70,16 +72,16 @@ class ModbusBitMessageTests(unittest.TestCase):
         handle = ReadBitsResponseBase(input)
         for i in [1,3,5]: handle.setBit(i, True)
         for i in [1,3,5]: handle.resetBit(i)
-        for i in xrange(8):
+        for i in range(8):
             self.assertEqual(handle.getBit(i), False)
 
     def testBitReadBaseRequests(self):
         ''' Test bit read request encoding '''
         messages = {
-            ReadBitsRequestBase(12, 14)        : '\x00\x0c\x00\x0e',
-            ReadBitsResponseBase([1,0,1,1,0])  : '\x01\x0d',
+            ReadBitsRequestBase(12, 14)        : b'\x00\x0c\x00\x0e',
+            ReadBitsResponseBase([1,0,1,1,0])  : b'\x01\x0d'
         }
-        for request, expected in messages.iteritems():
+        for request, expected in iteritems(messages):
             self.assertEqual(request.encode(), expected)
 
     def testBitReadMessageExecuteValueErrors(self):
@@ -116,6 +118,20 @@ class ModbusBitMessageTests(unittest.TestCase):
         for request in requests:
             result = request.execute(context)
             self.assertEqual(result.bits, [True] * 5)
+
+    def testBitReadMessageGetResponsePDU(self):
+        requests = {
+            ReadCoilsRequest(1,5): 3,
+            ReadCoilsRequest(1, 8): 3,
+            ReadCoilsRequest(0, 16): 4,
+            ReadDiscreteInputsRequest(1, 21): 5,
+            ReadDiscreteInputsRequest(1, 24): 5,
+            ReadDiscreteInputsRequest(1, 1900): 240,
+        }
+        for request, expected in iteritems(requests):
+            pdu_len = request.get_response_pdu_size()
+            self.assertEqual(pdu_len, expected)
+
 
 #---------------------------------------------------------------------------#
 # Main

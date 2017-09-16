@@ -47,6 +47,8 @@ class DiagnosticStatusRequest(ModbusRequest):
         packet = struct.pack('>H', self.sub_function_code)
         if self.message is not None:
             if isinstance(self.message, str):
+                packet += self.message.encode()
+            elif isinstance(self.message, bytes):
                 packet += self.message
             elif isinstance(self.message, list):
                 for piece in self.message:
@@ -61,6 +63,15 @@ class DiagnosticStatusRequest(ModbusRequest):
         :param data: The data to decode into the function code
         '''
         self.sub_function_code, self.message = struct.unpack('>HH', data)
+    
+    def get_response_pdu_size(self):
+        """
+        Func_code (1 byte) + Sub function code (2 byte) + Data (2 * N bytes)
+        :return: 
+        """
+        if not isinstance(self.message,list):
+            self.message = [self.message]
+        return 1 + 2 + 2 * len(self.message)
 
 
 class DiagnosticStatusResponse(ModbusResponse):
@@ -91,6 +102,8 @@ class DiagnosticStatusResponse(ModbusResponse):
         packet = struct.pack('>H', self.sub_function_code)
         if self.message is not None:
             if isinstance(self.message, str):
+                packet += self.message.encode()
+            elif isinstance(self.message, bytes):
                 packet += self.message
             elif isinstance(self.message, list):
                 for piece in self.message:
@@ -104,7 +117,11 @@ class DiagnosticStatusResponse(ModbusResponse):
 
         :param data: The data to decode into the function code
         '''
-        self.sub_function_code, self.message = struct.unpack('>HH', data)
+        word_len = len(data)//2
+        if len(data) % 2:
+            word_len += 1
+        data = struct.unpack('>' + 'H'*word_len, data)
+        self.sub_function_code, self.message = data[0], data[1:]
 
 
 class DiagnosticStatusSimpleRequest(DiagnosticStatusRequest):
@@ -171,7 +188,8 @@ class ReturnQueryDataRequest(DiagnosticStatusRequest):
         DiagnosticStatusRequest.__init__(self, **kwargs)
         if isinstance(message, list):
             self.message = message
-        else: self.message = [message]
+        else:
+            self.message = [message]
 
     def execute(self, *args):
         ''' Executes the loopback request (builds the response)
@@ -231,7 +249,6 @@ class RestartCommunicationsOptionRequest(DiagnosticStatusRequest):
         '''
         #if _MCB.ListenOnly:
         return RestartCommunicationsOptionResponse(self.message)
-
 
 class RestartCommunicationsOptionResponse(DiagnosticStatusResponse):
     '''
@@ -694,6 +711,23 @@ class GetClearModbusPlusRequest(DiagnosticStatusSimpleRequest):
     '''
     sub_function_code = 0x0015
 
+    def __init__(self, **kwargs):
+        super(GetClearModbusPlusRequest, self).__init__(**kwargs)
+
+    def get_response_pdu_size(self):
+        """
+        Returns a series of 54 16-bit words (108 bytes) in the data field of the response
+        (this function differs from the usual two-byte length of the data field). The data
+        contains the statistics for the Modbus Plus peer processor in the slave device.
+        Func_code (1 byte) + Sub function code (2 byte) + Operation (2 byte) + Data (108 bytes)
+        :return:
+        """
+        if self.message == ModbusPlusOperation.GetStatistics:
+            data = 2 + 108 # byte count(2) + data (54*2)
+        else:
+            data = 0
+        return 1 + 2 + 2 + 2+ data
+
     def execute(self, *args):
         ''' Execute the diagnostic request on the given device
 
@@ -702,8 +736,22 @@ class GetClearModbusPlusRequest(DiagnosticStatusSimpleRequest):
         message = None # the clear operation does not return info
         if self.message == ModbusPlusOperation.ClearStatistics:
             _MCB.Plus.reset()
-        else: message = _MCB.Plus.encode()
+            message = self.message
+        else:
+            message = [self.message]
+            message += _MCB.Plus.encode()
         return GetClearModbusPlusResponse(message)
+
+    def encode(self):
+        '''
+        Base encoder for a diagnostic response
+        we encode the data set in self.message
+
+        :returns: The encoded packet
+        '''
+        packet = struct.pack('>H', self.sub_function_code)
+        packet += struct.pack('>H', self.message)
+        return packet
 
 
 class GetClearModbusPlusResponse(DiagnosticStatusSimpleResponse):

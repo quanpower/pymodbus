@@ -31,13 +31,27 @@ class ModbusIOException(ModbusException):
 
 
 class ParameterException(ModbusException):
-    ''' Error resulting from invalid paramater '''
+    ''' Error resulting from invalid parameter '''
 
     def __init__(self, string=""):
         ''' Initialize the exception
+
         :param string: The message to append to the error
         '''
-        message = "[Invalid Paramter] %s" % string
+        message = "[Invalid Parameter] %s" % string
+        ModbusException.__init__(self, message)
+
+
+class NoSuchSlaveException(ModbusException):
+    ''' Error resulting from making a request to a slave
+    that does not exist '''
+
+    def __init__(self, string=""):
+        ''' Initialize the exception
+
+        :param string: The message to append to the error
+        '''
+        message = "[No Such Slave] %s" % string
         ModbusException.__init__(self, message)
 
 
@@ -57,10 +71,26 @@ class ConnectionException(ModbusException):
 
     def __init__(self, string=""):
         ''' Initialize the exception
+
         :param string: The message to append to the error
         '''
         message = "[Connection] %s" % string
         ModbusException.__init__(self, message)
+
+
+class InvalidMessageRecievedException(ModbusException):
+    """
+    Error resulting from invalid response received or decoded
+    """
+
+    def __init__(self, string=""):
+        ''' Initialize the exception
+
+        :param string: The message to append to the error
+        '''
+        message = "[Invalid Message] %s" % string
+        ModbusException.__init__(self, message)
+
 
 #---------------------------------------------------------------------------#
 # Exported symbols
@@ -68,5 +98,5 @@ class ConnectionException(ModbusException):
 __all__ = [
     "ModbusException", "ModbusIOException",
     "ParameterException", "NotImplementedException",
-    "ConnectionException",
+    "ConnectionException", "NoSuchSlaveException",
 ]

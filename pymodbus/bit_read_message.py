@@ -8,6 +8,7 @@ from pymodbus.pdu import ModbusRequest
 from pymodbus.pdu import ModbusResponse
 from pymodbus.pdu import ModbusExceptions as merror
 from pymodbus.utilities import pack_bitstring, unpack_bitstring
+from pymodbus.compat import byte2int
 
 
 class ReadBitsRequestBase(ModbusRequest):
@@ -23,7 +24,7 @@ class ReadBitsRequestBase(ModbusRequest):
         '''
         ModbusRequest.__init__(self, **kwargs)
         self.address = address
-        self.count   = count
+        self.count = count
 
     def encode(self):
         ''' Encodes a request pdu
@@ -38,7 +39,19 @@ class ReadBitsRequestBase(ModbusRequest):
         :param data: The packet data to decode
         '''
         self.address, self.count = struct.unpack('>HH', data)
+    
+    def get_response_pdu_size(self):
+        """
+        Func_code (1 byte) + Byte Count(1 byte) + Quantity of Coils (n Bytes)/8,
+        if the remainder is different of 0 then N = N+1
+        :return: 
+        """
+        count = self.count//8
+        if self.count % 8:
+            count += 1
 
+        return 1 + 1 + count
+    
     def __str__(self):
         ''' Returns a string representation of the instance
 
@@ -74,7 +87,7 @@ class ReadBitsResponseBase(ModbusResponse):
 
         :param data: The packet data to decode
         '''
-        self.byte_count = struct.unpack(">B", data[0])[0]
+        self.byte_count = byte2int(data[0])
         self.bits = unpack_bitstring(data[1:])
 
     def setBit(self, address, value=1):

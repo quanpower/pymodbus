@@ -10,6 +10,7 @@ from pymodbus.interfaces import IPayloadBuilder
 from pymodbus.constants import Endian
 from pymodbus.utilities import pack_bitstring
 from pymodbus.utilities import unpack_bitstring
+from pymodbus.utilities import make_byte_string
 from pymodbus.exceptions import ParameterException
 
 
@@ -30,23 +31,40 @@ class BinaryPayloadBuilder(IPayloadBuilder):
     def __init__(self, payload=None, endian=Endian.Little):
         ''' Initialize a new instance of the payload builder
 
-        :param payload: Raw payload data to initialize with
+        :param payload: Raw binary payload data to initialize with
         :param endian: The endianess of the payload
         '''
         self._payload = payload or []
         self._endian  = endian
+
+    def to_string(self):
+        ''' Return the payload buffer as a string
+
+        :returns: The payload buffer as a string
+        '''
+        return b''.join(self._payload)
 
     def __str__(self):
         ''' Return the payload buffer as a string
 
         :returns: The payload buffer as a string
         '''
-        return ''.join(self._payload)
+        return self.to_string().decode('utf-8')
 
     def reset(self):
         ''' Reset the payload buffer
         '''
         self._payload = []
+
+    def to_registers(self):
+        ''' Convert the payload buffer into a register
+        layout that can be used as a context block.
+
+        :returns: The register layout to use as a block
+        '''
+        fstring = self._endian + 'H'
+        payload = self.build()
+        return [unpack(fstring, value)[0] for value in payload]
 
     def build(self):
         ''' Return the payload buffer as a list
@@ -56,10 +74,10 @@ class BinaryPayloadBuilder(IPayloadBuilder):
 
         :returns: The payload buffer as a list
         '''
-        string = str(self)
+        string = self.to_string()
         length = len(string)
-        string = string + ('\x00' * (length % 2))
-        return [string[i:i+2] for i in xrange(0, length, 2)]
+        string = string + (b'\x00' * (length % 2))
+        return [string[i:i+2] for i in range(0, length, 2)]
 
     def add_bits(self, values):
         ''' Adds a collection of bits to be encoded
@@ -158,9 +176,9 @@ class BinaryPayloadBuilder(IPayloadBuilder):
 
         :param value: The value to add to the buffer
         '''
-        fstring = self._endian + 's'
-        for c in value:
-            self._payload.append(pack(fstring, c))
+        value = make_byte_string(value)
+        fstring = self._endian + str(len(value)) + 's'
+        self._payload.append(pack(fstring, value))
 
 
 class BinaryPayloadDecoder(object):
@@ -199,7 +217,7 @@ class BinaryPayloadDecoder(object):
         :returns: An initialized PayloadDecoder
         '''
         if isinstance(registers, list): # repack into flat binary
-            payload = ''.join(pack('>H', x) for x in registers)
+            payload = b''.join(pack(endian + 'H', x) for x in registers)
             return klass(payload, endian)
         raise ParameterException('Invalid collection of registers supplied')
 
@@ -230,14 +248,16 @@ class BinaryPayloadDecoder(object):
         self._pointer += 1
         fstring = self._endian + 'B'
         handle = self._payload[self._pointer - 1:self._pointer]
+        handle = make_byte_string(handle)
         return unpack(fstring, handle)[0]
 
     def decode_bits(self):
         ''' Decodes a byte worth of bits from the buffer
         '''
         self._pointer += 1
-        fstring = self._endian + 'B'
+        # fstring = self._endian + 'B'
         handle = self._payload[self._pointer - 1:self._pointer]
+        handle = make_byte_string(handle)
         return unpack_bitstring(handle)
 
     def decode_16bit_uint(self):
@@ -246,6 +266,7 @@ class BinaryPayloadDecoder(object):
         self._pointer += 2
         fstring = self._endian + 'H'
         handle = self._payload[self._pointer - 2:self._pointer]
+        handle = make_byte_string(handle)
         return unpack(fstring, handle)[0]
 
     def decode_32bit_uint(self):
@@ -254,6 +275,7 @@ class BinaryPayloadDecoder(object):
         self._pointer += 4
         fstring = self._endian + 'I'
         handle = self._payload[self._pointer - 4:self._pointer]
+        handle = make_byte_string(handle)
         return unpack(fstring, handle)[0]
 
     def decode_64bit_uint(self):
@@ -262,6 +284,7 @@ class BinaryPayloadDecoder(object):
         self._pointer += 8
         fstring = self._endian + 'Q'
         handle = self._payload[self._pointer - 8:self._pointer]
+        handle = make_byte_string(handle)
         return unpack(fstring, handle)[0]
 
     def decode_8bit_int(self):
@@ -270,6 +293,7 @@ class BinaryPayloadDecoder(object):
         self._pointer += 1
         fstring = self._endian + 'b'
         handle = self._payload[self._pointer - 1:self._pointer]
+        handle = make_byte_string(handle)
         return unpack(fstring, handle)[0]
 
     def decode_16bit_int(self):
@@ -278,6 +302,7 @@ class BinaryPayloadDecoder(object):
         self._pointer += 2
         fstring = self._endian + 'h'
         handle = self._payload[self._pointer - 2:self._pointer]
+        handle = make_byte_string(handle)
         return unpack(fstring, handle)[0]
 
     def decode_32bit_int(self):
@@ -286,6 +311,7 @@ class BinaryPayloadDecoder(object):
         self._pointer += 4
         fstring = self._endian + 'i'
         handle = self._payload[self._pointer - 4:self._pointer]
+        handle = make_byte_string(handle)
         return unpack(fstring, handle)[0]
 
     def decode_64bit_int(self):
@@ -294,6 +320,7 @@ class BinaryPayloadDecoder(object):
         self._pointer += 8
         fstring = self._endian + 'q'
         handle = self._payload[self._pointer - 8:self._pointer]
+        handle = make_byte_string(handle)
         return unpack(fstring, handle)[0]
 
     def decode_32bit_float(self):
@@ -302,6 +329,7 @@ class BinaryPayloadDecoder(object):
         self._pointer += 4
         fstring = self._endian + 'f'
         handle = self._payload[self._pointer - 4:self._pointer]
+        handle = make_byte_string(handle)
         return unpack(fstring, handle)[0]
 
     def decode_64bit_float(self):
@@ -310,6 +338,7 @@ class BinaryPayloadDecoder(object):
         self._pointer += 8
         fstring = self._endian + 'd'
         handle = self._payload[self._pointer - 8:self._pointer]
+        handle = make_byte_string(handle)
         return unpack(fstring, handle)[0]
 
     def decode_string(self, size=1):
@@ -319,6 +348,14 @@ class BinaryPayloadDecoder(object):
         '''
         self._pointer += size
         return self._payload[self._pointer - size:self._pointer]
+
+    def skip_bytes(self, nbytes):
+        ''' Skip n bytes in the buffer
+
+        :param nbytes: The number of bytes to skip
+        '''
+        self._pointer += nbytes
+        return None
 
 #---------------------------------------------------------------------------#
 # Exported Identifiers

@@ -1,8 +1,10 @@
 import socket
 import serial
+import time
 
 from pymodbus.constants import Defaults
 from pymodbus.factory import ClientDecoder
+from pymodbus.compat import byte2int
 from pymodbus.exceptions import NotImplementedException, ParameterException
 from pymodbus.exceptions import ConnectionException
 from pymodbus.transaction import FifoTransactionManager
@@ -120,6 +122,7 @@ class ModbusTcpClient(BaseModbusClient):
         :param host: The host to connect to (default 127.0.0.1)
         :param port: The modbus port to connect to (default 502)
         :param source_address: The source address tuple to bind to (default ('', 0))
+        :param timeout: The timeout to use for this socket (default Defaults.Timeout)
         :param framer: The modbus framer to use (default ModbusSocketFramer)
 
         .. note:: The host argument will accept ipv4 and ipv6 hosts
@@ -128,6 +131,7 @@ class ModbusTcpClient(BaseModbusClient):
         self.port = port
         self.source_address = kwargs.get('source_address', ('', 0))
         self.socket = None
+        self.timeout  = kwargs.get('timeout',  Defaults.Timeout)
         BaseModbusClient.__init__(self, framer(ClientDecoder()), **kwargs)
 
     def connect(self):
@@ -137,10 +141,9 @@ class ModbusTcpClient(BaseModbusClient):
         '''
         if self.socket: return True
         try:
-            address = (self.host, self.port)
             self.socket = socket.create_connection((self.host, self.port),
-                timeout=Defaults.Timeout, source_address=self.source_address)
-        except socket.error, msg:
+                timeout=self.timeout, source_address=self.source_address)
+        except socket.error as msg:
             _logger.error('Connection to (%s, %s) failed: %s' % \
                 (self.host, self.port, msg))
             self.close()
@@ -197,10 +200,12 @@ class ModbusUdpClient(BaseModbusClient):
         :param host: The host to connect to (default 127.0.0.1)
         :param port: The modbus port to connect to (default 502)
         :param framer: The modbus framer to use (default ModbusSocketFramer)
+        :param timeout: The timeout to use for this socket (default None)
         '''
-        self.host = host
-        self.port = port
-        self.socket = None
+        self.host    = host
+        self.port    = port
+        self.socket  = None
+        self.timeout = kwargs.get('timeout', None)
         BaseModbusClient.__init__(self, framer(ClientDecoder()), **kwargs)
 
     @classmethod
@@ -226,7 +231,8 @@ class ModbusUdpClient(BaseModbusClient):
         try:
             family = ModbusUdpClient._get_address_family(self.host)
             self.socket = socket.socket(family, socket.SOCK_DGRAM)
-        except socket.error, ex:
+            self.socket.settimeout(self.timeout)
+        except socket.error as ex:
             _logger.error('Unable to create udp socket %s' % ex)
             self.close()
         return self.socket != None
@@ -300,6 +306,12 @@ class ModbusSerialClient(BaseModbusClient):
         self.parity   = kwargs.get('parity',   Defaults.Parity)
         self.baudrate = kwargs.get('baudrate', Defaults.Baudrate)
         self.timeout  = kwargs.get('timeout',  Defaults.Timeout)
+        if self.method == "rtu":
+            self._last_frame_end = 0.0
+            if self.baudrate > 19200:
+                self._silent_interval = 1.75/1000  # ms
+            else:
+                self._silent_interval = 3.5 * (1 + 8 + 2) / self.baudrate
 
     @staticmethod
     def __implementation(method):
@@ -325,9 +337,11 @@ class ModbusSerialClient(BaseModbusClient):
             self.socket = serial.Serial(port=self.port, timeout=self.timeout,
                 bytesize=self.bytesize, stopbits=self.stopbits,
                 baudrate=self.baudrate, parity=self.parity)
-        except serial.SerialException, msg:
+        except serial.SerialException as msg:
             _logger.error(msg)
             self.close()
+        if self.method == "rtu":
+            self._last_frame_end = time.time()
         return self.socket != None
 
     def close(self):
@@ -340,13 +354,40 @@ class ModbusSerialClient(BaseModbusClient):
     def _send(self, request):
         ''' Sends data on the underlying socket
 
+        If receive buffer still holds some data then flush it.
+
+        Sleep if last send finished less than 3.5 character
+        times ago.
+
         :param request: The encoded request to send
         :return: The number of bytes written
         '''
         if not self.socket:
             raise ConnectionException(self.__str__())
         if request:
-            return self.socket.write(request)
+            ts = time.time()
+            if self.method == "rtu":
+                if ts < self._last_frame_end + self._silent_interval:
+                    _logger.debug("will sleep to wait for 3.5 char")
+                    time.sleep(self._last_frame_end + self._silent_interval - ts)
+
+            try:
+                in_waiting = "in_waiting" if hasattr(self.socket, "in_waiting") else "inWaiting"
+                if in_waiting == "in_waiting":
+                    waitingbytes = getattr(self.socket, in_waiting)
+                else:
+                    waitingbytes = getattr(self.socket, in_waiting)()
+                if waitingbytes:
+                    result = self.socket.read(waitingbytes)
+                    if _logger.isEnabledFor(logging.WARNING):
+                        _logger.warning("cleanup recv buffer before send: " + " ".join([hex(byte2int(x)) for x in result]))
+            except NotImplementedError:
+                pass
+
+            size = self.socket.write(request)
+            if self.method == "rtu":
+                self._last_frame_end = time.time()
+            return size
         return 0
 
     def _recv(self, size):
@@ -357,7 +398,10 @@ class ModbusSerialClient(BaseModbusClient):
         '''
         if not self.socket:
             raise ConnectionException(self.__str__())
-        return self.socket.read(size)
+        result = self.socket.read(size)
+        if self.method == "rtu":
+            self._last_frame_end = time.time()
+        return result
 
     def __str__(self):
         ''' Builds a string representation of the connection
